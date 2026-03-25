@@ -1,0 +1,690 @@
+# -*- coding: utf-8 -*-
+from dbfread import DBF
+import dbf
+import os
+import numpy as np
+import random
+
+from matplotlib.backends.backend_agg import FigureCanvasAgg
+from sklearn import model_selection
+from sklearn import svm
+from sklearn.ensemble import RandomForestClassifier
+from sklearn import neighbors
+from sklearn import neural_network
+from sklearn.ensemble import GradientBoostingClassifier
+from sklearn.naive_bayes import GaussianNB
+from sklearn.linear_model import LogisticRegression
+from sklearn.metrics import roc_auc_score as AUC
+from sklearn.metrics import roc_curve
+from sklearn.metrics import confusion_matrix, accuracy_score, precision_score, recall_score, f1_score
+import matplotlib.pyplot as plt
+import csv
+import itertools
+from statsmodels.stats.outliers_influence import variance_inflation_factor
+
+import pandas as pd
+
+# Global random seed for reproducibility
+RANDOM_SEED = 42  # Can be any fixed integer
+np.random.seed(RANDOM_SEED)
+random.seed(RANDOM_SEED)
+
+# Data Extraction Function
+def extract(dbfroad, factor):
+    # Extracts data, calculates Frequency Ratio (FR) for each indicator, 
+    # then samples equal amounts of non-flood points to form the dataset XY_sample.
+    # dbfroad: path to dbf file, factor: target columns to extract
+    table = DBF(dbfroad, encoding='GBK')
+    df = pd.DataFrame(iter(table))
+    print("Data loaded successfully")
+    XY = df.iloc[:, factor]  # Get all values from selected columns
+    XY = np.array(XY.values)  # Convert variables to array
+    column = XY.shape[1]  # Number of columns
+    XY_max = np.max(XY, axis=0)  # Max value of each row
+    max_val = np.max(XY_max)  # Global maximum value
+    max_val = np.int64(max_val)
+    
+    # Counting (Classes count, and flood count within each class)
+    num = np.zeros((max_val, column))  # Number of classes
+    snum = np.zeros((max_val, column))  # Number of floods in class
+    for a in range(column):  # Column loop
+        for i in range(XY.shape[0]):  # Row loop
+            for f in range(np.int64(XY_max[a])):  # Frequency Ratio rows
+                if XY[i, a] == f + 1:  # Summing same class values
+                    num[f, a] = num[f, a] + 1
+                    if XY[i, -1] == 1:
+                        snum[f, a] = snum[f, a] + 1
+
+    # Frequency Ratio calculation
+    num = num / XY.shape[0]  # Area ratio
+    snum = snum / snum[0, -1]  # Flood area ratio
+    pinglvbi = snum / num  # Frequency Ratio
+
+    # Data assignment
+    XY = XY.astype(float)  # Convert integer format to float for assignment
+    for i in range(XY.shape[0]):
+        for j in range(XY.shape[1] - 1):
+            for a in range(max_val):
+                if XY[i, j] == a + 1:
+                    XY[i, j] = pinglvbi[a, j]  # Assign FR value
+
+    # Sample Selection
+    n_0 = 0  # Counter for non-flood
+    n_1 = 0  # Counter for flood
+    for i in range(XY.shape[0]):  # Count flood and non-flood points
+        if XY[i, -1] == 0:
+            n_0 = n_0 + 1
+        elif XY[i, -1] == 1:
+            n_1 = n_1 + 1
+    s_0 = np.zeros(n_0)  # Index for non-flood
+    q = 0  # Record non-flood count
+    s_1 = np.zeros(n_1)  # Index for flood
+    p = 0  # Record flood count
+    for i in range(XY.shape[0]):  # Mark positions of flood/non-flood
+        if XY[i, -1] == 0:
+            s_0[q] = i
+            q = q + 1
+        elif XY[i, -1] == 1:
+            s_1[p] = i
+            p = p + 1
+
+    XY_sample0 = np.zeros((q, XY.shape[1]))  # Non-flood samples
+    XY_sample1 = np.zeros((p, XY.shape[1]))  # Flood samples
+
+    for i in range(q):
+        XY_sample0[i, :] = XY[int(s_0[i]), :]
+    for i in range(p):
+        XY_sample1[i, :] = XY[int(s_1[i]), :]
+        
+    if n_0 > n_1:
+        random.seed(RANDOM_SEED)  # Fixed random seed
+        XY_sample0 = random.sample(list(XY_sample0), n_1)
+    else:
+        random.seed(RANDOM_SEED)  # Fixed random seed
+        XY_sample1 = random.sample(list(XY_sample1), n_0)
+
+    XY_sample0 = np.array(XY_sample0)
+    XY_sample1 = np.array(XY_sample1)
+    XY_sample = tuple(XY_sample0) + tuple(XY_sample1)  # Merge flood and non-flood points
+    XY_sample = np.array(XY_sample)
+
+    try:
+        if XY_sample.shape[1] - 1 > 0:
+            print("\n=== Feature VIF Evaluation ===")
+            vif_results = calculate_vif(XY_sample[:, :-1],
+                                        feature_names if len(feature_names) == XY_sample.shape[1] - 1 else None)
+            print(vif_results.to_string(index=False))
+
+            vif_csv_path = os.path.join(os.path.dirname(yfxroad), "feature_vif_results.csv")
+            vif_results.to_csv(vif_csv_path, index=False)
+            print(f"VIF evaluation results saved to: {vif_csv_path}")
+    except Exception as e:
+        print(f"VIF calculation failed: {str(e)}")
+
+    return XY_sample, XY
+
+# Susceptibility Calculation Function
+def yfx(XY_sample, XY):
+    # Calculate flood susceptibility using seven built-in machine learning methods
+    yifaxing = np.zeros((XY.shape[0], 7))
+    data = XY_sample
+    X_total = XY[:, 0:-1]
+    X = data[:, :-1]
+    y = data[:, -1]
+
+    print(f"XY_sample count: {XY_sample.shape[0]}")
+    print(f"XY total count: {XY.shape[0]}")
+
+    # Split data into training and testing sets
+    X_train, X_test, y_train, y_test = model_selection.train_test_split(X, y, test_size=0.3, random_state=RANDOM_SEED)
+
+    # Create figure and canvas
+    fig, ax = plt.subplots(dpi=300)
+    canvas = FigureCanvasAgg(fig)
+
+    # Collect AUC scores and predictions
+    auc_scores = []
+    model_names = ['SVC', 'RFC', 'KNC', 'CNN', 'GBDT', 'GNB', 'LR']
+    all_predictions = {}  # Store predictions for each model
+
+    # Support Vector Machine
+    yifaxing[:, 0], auc, y_pred_svc = SVC(X_train, X_test, y_train, y_test, X_total, ax)
+    auc_scores.append(auc)
+    all_predictions['SVC'] = y_pred_svc
+
+    # Random Forest
+    yifaxing[:, 1], auc, y_pred_rfc = RFC(X_train, X_test, y_train, y_test, X_total, ax)
+    auc_scores.append(auc)
+    all_predictions['RFC'] = y_pred_rfc
+
+    # K-Nearest Neighbors
+    yifaxing[:, 2], auc, y_pred_knc = KNC(X_train, X_test, y_train, y_test, X_total, ax)
+    auc_scores.append(auc)
+    all_predictions['KNC'] = y_pred_knc
+
+    # CNN Neural Network
+    yifaxing[:, 3], auc, y_pred_cnn = CNN(X_train, X_test, y_train, y_test, X_total, ax)
+    auc_scores.append(auc)
+    all_predictions['CNN'] = y_pred_cnn
+
+    # Gradient Boosting Decision Tree
+    yifaxing[:, 4], auc, y_pred_gbdt = GBDT(X_train, X_test, y_train, y_test, X_total, ax)
+    auc_scores.append(auc)
+    all_predictions['GBDT'] = y_pred_gbdt
+
+    # Gaussian Naive Bayes
+    yifaxing[:, 5], auc, y_pred_gnb = GNB(X_train, X_test, y_train, y_test, X_total, ax)
+    auc_scores.append(auc)
+    all_predictions['GNB'] = y_pred_gnb
+
+    # Logistic Regression
+    yifaxing[:, 6], auc, y_pred_lr = LR(X_train, X_test, y_train, y_test, X_total, ax)
+    auc_scores.append(auc)
+    all_predictions['LR'] = y_pred_lr
+
+    # Save AUC results
+    save_auc_results(auc_scores, model_names)
+
+    # Save classification metrics
+    output_dir = os.path.dirname(yfxroad)
+    for model_name in model_names:
+        save_classification_metrics(y_test, all_predictions[model_name], model_name, output_dir)
+
+    # Save final plot
+    canvas.draw()
+    file_path = os.path.join(os.path.dirname(yfxroad), "combined_ROC.png")
+    canvas.print_png(file_path)
+    plt.close()
+
+    return yifaxing
+
+# Support Vector Machine
+def SVC(X_train, X_test, y_train, y_test, X_total, ax=None):
+    # Train model
+    svc = svm.SVC(probability=True)
+    svc.fit(X=X_train, y=y_train)
+    # Test model, ROC, AUC
+    scores = svc.decision_function(X_test)
+    fpr, tpr, thresholds = roc_curve(y_test, scores, pos_label=1)
+    area = AUC(y_test, scores)
+    ROC(fpr, tpr, area, "SVC", ax)
+    name = "SVC"
+
+    # Get predictions
+    y_pred = svc.predict(X_test)
+
+    # Add SHAP analysis
+    save_weights_plot(svc, X_train, name)
+
+    # Susceptibility mapping
+    y_svc_hat_score = svc.decision_function(X=X_total)
+    yifaxing_svc = 1 / (1 + np.exp(-y_svc_hat_score))
+    return yifaxing_svc, area, y_pred
+
+# Random Forest
+def RFC(X_train , X_test, y_train, y_test, X_total, ax):
+    # Train model
+    rfc = RandomForestClassifier()
+    rfc.fit(X_train, y_train)
+    # Test model, ROC, AUC
+    scores = rfc.predict_proba(X_test)[:, 1]
+    fpr, tpr, thresholds = roc_curve(y_test, scores, pos_label=1)
+    area = AUC(y_test, scores)
+    name = "RFC"
+
+    # Get predictions
+    y_pred = rfc.predict(X_test)
+
+    save_weights_plot(rfc, X_train, name)
+
+    ROC(fpr, tpr, area, "RFC", ax)
+    # Susceptibility mapping
+    rfc_probs = rfc.predict_proba(X_total)
+    yifaxing_rfc = rfc_probs[:, 1]
+    return yifaxing_rfc, area, y_pred
+
+# K-Nearest Neighbors
+def KNC(X_train , X_test, y_train, y_test, X_total, ax):
+    knc = neighbors.KNeighborsClassifier()
+    knc.fit(X_train, y_train)
+    # Test model, ROC, AUC
+    scores = knc.predict_proba(X_test)[:, 1]
+    fpr, tpr, thresholds = roc_curve(y_test, scores, pos_label=1)
+    area = AUC(y_test, scores)
+    name = "KNC"
+
+    # Get predictions
+    y_pred = knc.predict(X_test)
+
+    save_weights_plot(knc, X_train, name)
+
+    ROC(fpr, tpr, area, "KNC", ax)
+    # Susceptibility mapping
+    knc_probs = knc.predict_proba(X_total)
+    yifaxing_knc = knc_probs[:, 1]
+    return yifaxing_knc, area, y_pred
+
+# CNN Neural Network (MLP)
+def CNN (X_train , X_test, y_train, y_test, X_total, ax):
+    cnn = neural_network.MLPClassifier()
+    cnn.fit(X_train, y_train)
+    # Test model, ROC, AUC
+    scores = cnn.predict_proba(X_test)[:, 1]
+    fpr, tpr, thresholds = roc_curve(y_test, scores, pos_label=1)
+    area = AUC(y_test, scores)
+    name = "CNN"
+
+    # Get predictions
+    y_pred = cnn.predict(X_test)
+
+    save_weights_plot(cnn, X_train, name)
+
+    ROC(fpr, tpr, area, "CNN", ax)
+    # Susceptibility mapping
+    cnn_probs = cnn.predict_proba(X_total)
+    yifaxing_cnn = cnn_probs[:, 1]
+    return yifaxing_cnn, area, y_pred
+
+# Gradient Boosting Decision Tree
+def GBDT(X_train, X_test, y_train, y_test, X_total, ax):
+    gbdt = GradientBoostingClassifier()
+    gbdt.fit(X_train, y_train)
+    # Test model
+    scores = gbdt.predict_proba(X_test)[:, 1]
+    fpr, tpr, thresholds = roc_curve(y_test, scores, pos_label=1)
+    area = AUC(y_test, scores)
+    name = "GBDT"
+
+    # Get predictions
+    y_pred = gbdt.predict(X_test)
+
+    save_weights_plot(gbdt, X_train, name)
+
+    ROC(fpr, tpr, area, "GBDT", ax)
+    # Susceptibility mapping
+    gbdt_probs = gbdt.predict_proba(X_total)
+    yifaxing_gbdt = gbdt_probs[:, 1]
+    return yifaxing_gbdt, area, y_pred
+
+# Gaussian Naive Bayes
+def GNB(X_train, X_test, y_train, y_test, X_total, ax):
+    gnb = GaussianNB()
+    gnb.fit(X_train, y_train)
+    # Test model, ROC, AUC
+    scores = gnb.predict_proba(X_test)[:, 1]
+    fpr, tpr, thresholds = roc_curve(y_test, scores, pos_label=1)
+    area = AUC(y_test, scores)
+    name = "GNB"
+
+    # Get predictions
+    y_pred = gnb.predict(X_test)
+
+    save_weights_plot(gnb, X_train, name)
+
+    ROC(fpr, tpr, area, "GNB", ax)
+    # Susceptibility mapping
+    gnb_probs = gnb.predict_proba(X_total)
+    yifaxing_gnb = gnb_probs[:, 1]
+    return yifaxing_gnb, area, y_pred
+
+# Logistic Regression
+def LR(X_train, X_test, y_train, y_test, X_total, ax):
+    lr = LogisticRegression()
+    lr.fit(X_train, y_train)
+    # Test model, ROC, AUC
+    scores = lr.predict_proba(X_test)[:, 1]
+    fpr, tpr, thresholds = roc_curve(y_test, scores, pos_label=1)
+    area = AUC(y_test, scores)
+    name = "LR"
+
+    # Get predictions
+    y_pred = lr.predict(X_test)
+
+    save_weights_plot(lr, X_train, name)
+
+    ROC(fpr, tpr, area, "LR", ax)
+    # Susceptibility mapping
+    lr_probs = lr.predict_proba(X_total)
+    yifaxing_lr = lr_probs[:, 1]
+    return yifaxing_lr, area, y_pred
+
+# ROC plotting function
+def ROC(fpr, tpr, area, name, ax=None):
+    # If ax is not provided, create a new figure
+    if ax is None:
+        plt.figure()
+        ax = plt.gca()
+
+    # Plot ROC curve
+    ax.plot(fpr, tpr, label=f'{name} (AUC = {area:.2f})')
+    ax.plot([0, 1], [0, 1], color='black', linestyle='--')
+
+    # Set plot attributes
+    ax.set_xlim([-0.05, 1.05])
+    ax.set_ylim([-0.05, 1.05])
+    ax.set_xlabel('False Positive Rate (FPR)')
+    ax.set_ylabel('True Positive Rate (TPR)')
+    ax.legend(loc="lower right")
+
+    # If called individually, save and show
+    if ax is None:
+        plt.savefig(os.path.join(os.path.dirname(yfxroad), f"{name}.jpg"))
+        plt.show()
+
+# Pairwise contribution function
+def calculate_pairwise_contributions(shap_values, feature_names):
+    num_features = len(feature_names)
+    correlation_matrix = np.zeros((num_features, num_features))
+
+    for i, j in itertools.combinations(range(num_features), 2):
+        # Calculate pairwise SHAP correlation
+        correlation = np.corrcoef(shap_values[:, i], shap_values[:, j])[0, 1]
+        correlation_matrix[i, j] = correlation
+        correlation_matrix[j, i] = correlation  # Symmetrical matrix
+
+    # Fill diagonal with 1
+    np.fill_diagonal(correlation_matrix, 1)
+
+    return correlation_matrix
+
+# Classification metrics function
+def save_classification_metrics(y_true, y_pred, model_name, output_dir):
+    """
+    Calculate and save classification metrics to CSV
+    """
+    # Confusion matrix
+    tn, fp, fn, tp = confusion_matrix(y_true, y_pred).ravel()
+
+    # Metrics calculation
+    accuracy = accuracy_score(y_true, y_pred)
+    precision = precision_score(y_true, y_pred)
+    recall = recall_score(y_true, y_pred)
+    f1 = f1_score(y_true, y_pred)
+
+    # Result dictionary
+    metrics_data = {
+        'Model': [model_name],
+        'True_Negative': [tn],
+        'False_Positive': [fp],
+        'False_Negative': [fn],
+        'True_Positive': [tp],
+        'Accuracy': [accuracy],
+        'Precision': [precision],
+        'Recall': [recall],
+        'F1_Score': [f1]
+    }
+
+    # DataFrame conversion
+    metrics_df = pd.DataFrame(metrics_data)
+
+    # Save to CSV
+    csv_path = os.path.join(output_dir, f"{model_name}_classification_metrics.csv")
+    metrics_df.to_csv(csv_path, index=False, float_format='%.4f')
+
+    print(f"{model_name} metrics saved to: {csv_path}")
+
+    return metrics_df
+
+# SHAP summary plot and correlation function
+def save_weights_plot(model, X_train, name, random_seed=1, n_clusters=200):
+    import seaborn as sns
+    import shap
+    import numpy as np
+    import pandas as pd
+    import matplotlib.pyplot as plt
+    import os
+    import csv
+    from matplotlib.colors import LinearSegmentedColormap
+    from sklearn.utils import shuffle
+    from matplotlib.collections import PathCollection
+
+    # Use random sampling to reduce sample size
+    if X_train.shape[0] > n_clusters:
+        X_train_summary, _ = shuffle(
+            X_train,
+            np.zeros(X_train.shape[0]),
+            n_samples=n_clusters,  # cluster count substitute
+            random_state=random_seed
+        )
+    else:
+        X_train_summary = X_train
+
+    def predict_function(X):
+        return model.predict_proba(X)[:, 1]
+
+    # Create SHAP explainer
+    explainer = shap.KernelExplainer(predict_function, X_train_summary)
+    shap_values = explainer.shap_values(X_train_summary)
+
+    # Average absolute SHAP values
+    mean_abs_shap_values = np.mean(np.abs(shap_values), axis=0)
+
+    # Normalization (Total 100%)
+    mean_abs_shap_values_normalized = mean_abs_shap_values / np.sum(mean_abs_shap_values) * 100
+
+    # Data for bar plot
+    features = feature_names
+    contributions = mean_abs_shap_values_normalized
+
+    # Save contributions to CSV
+    csv_path = os.path.join(os.path.dirname(yfxroad), f"{name}_shap_contributions.csv")
+    with open(csv_path, mode='w', newline='') as file:
+        writer = csv.writer(file)
+        writer.writerow(["Feature", "Mean Absolute SHAP Value (%)"])
+        for feature, shap_value in zip(features, contributions):
+            writer.writerow([feature, shap_value])
+
+    # =============================
+    # Draw SHAP summary plot + Background bar + Top percentage axis + Legend
+    # =============================
+    fig, ax = plt.subplots(figsize=(8, 10), dpi=600)
+
+    # Blue-Red colormap
+    cmap = LinearSegmentedColormap.from_list("blue_red", ["#0000FF", "#FF0000"])
+
+    # summary_plot dot plot
+    shap.summary_plot(
+        shap_values,
+        pd.DataFrame(X_train_summary, columns=features),
+        plot_type="dot",
+        cmap=cmap,
+        show=False
+    )
+
+    # collection scatter point size
+    point_size = 60
+    for collection in ax.collections:
+        if isinstance(collection, PathCollection):
+            current_sizes = collection.get_sizes()
+            if len(current_sizes) > 0:
+                collection.set_sizes([point_size] * len(current_sizes))
+
+    # Y-axis feature order
+    shap_df = pd.DataFrame(shap_values, columns=features)
+    yticks = ax.get_yticks()
+    ylabels = [tick.get_text() for tick in ax.get_yticklabels()]
+
+    # X-axis range
+    x_min, x_max = ax.get_xlim()
+    x_range = x_max - x_min
+
+    # Background contribution bars
+    for y, feature in zip(yticks, ylabels):
+        if feature in features:
+            idx = features.index(feature)
+            contrib = contributions[idx]
+            bar_percentage = min(contrib, 60)
+            bar_width = (bar_percentage / 60) * x_range
+            ax.barh(y, bar_width, height=0.5, alpha=0.4,
+                    color='steelblue', left=x_min, zorder=1)
+
+    # =============================
+    # Median dot + Std line
+    # =============================
+    stats_data = [] 
+    for y, feature in zip(yticks, ylabels):
+        if feature in shap_df.columns:
+            vals = shap_df[feature].values
+            median_val = np.median(vals)
+            std_val = np.std(vals)
+            stats_data.append([feature, median_val, std_val])
+
+            # Median marker (RGB: 252,192,12)
+            ax.plot(median_val, y,
+                    marker='s',
+                    color=(252/255, 192/255, 12/255),
+                    markersize=9,
+                    zorder=5,
+                    label='Median' if y == yticks[0] else "")
+            # Std Dev dashed line (RGB: 252,192,12, Width: 2.88)
+            ax.hlines(y, median_val - std_val, median_val + std_val,
+                      colors=[(252/255, 192/255, 12/255)],
+                      linewidth=2.88, linestyle='--', zorder=4,
+                      label='±1 Std Dev' if y == yticks[0] else "")
+
+    # Export stats to CSV
+    stats_csv_path = os.path.join(os.path.dirname(yfxroad), f"{name}_shap_stats.csv")
+    with open(stats_csv_path, mode='w', newline='') as file:
+        writer = csv.writer(file)
+        writer.writerow(["Feature", "Median", "StdDev"])
+        for row in stats_data:
+            writer.writerow(row)
+
+    # Legend
+    ax.legend(loc='lower right', fontsize=8)
+
+    # Top percentage axis
+    ax_top = ax.secondary_xaxis('top')
+    ax_top.set_xlabel('Variable Importance %', fontsize=9)
+    max_percentage = 60
+    percent_ticks = np.linspace(x_min, x_max, 11)
+    percent_labels = [f'{(x - x_min) / x_range * max_percentage:.0f}' for x in percent_ticks]
+    ax_top.set_xticks(percent_ticks)
+    ax_top.set_xticklabels(percent_labels, fontsize=7)
+
+    plt.title(f"{name} SHAP Summary Plot", fontsize=16)
+    plt.tight_layout()
+    plt.savefig(os.path.join(os.path.dirname(yfxroad), f"{name}_shap_summary_plot.jpg"))
+    plt.show()
+
+    # =============================
+    # Correlation Heatmap
+    # =============================
+    fig_heatmap, ax_heatmap = plt.subplots(figsize=(6.67, 5.33), dpi=600)
+
+    # Correlation matrix
+    corr_matrix = np.corrcoef(X_train_summary.T)
+
+    # Create heatmap
+    sns.heatmap(
+        corr_matrix,
+        xticklabels=features,
+        yticklabels=features,
+        cmap='RdBu_r',
+        center=0,
+        annot=True,
+        fmt='.2f',
+        square=True,
+        cbar_kws={'label': 'Correlation Coefficient', 'shrink': 1.0},
+        annot_kws={'size': 6},
+        ax=ax_heatmap,
+        vmin=-1,
+        vmax=1
+    )
+
+    ax_heatmap.set_title(f'{name} Feature Correlation Heatmap', fontsize=18)
+    ax_heatmap.set_xticklabels(ax_heatmap.get_xticklabels(), rotation=45, ha='right', fontsize=12)
+    ax_heatmap.set_yticklabels(ax_heatmap.get_yticklabels(), rotation=0, fontsize=12)
+
+    plt.tight_layout()
+
+    # Save heatmap
+    plt.savefig(os.path.join(os.path.dirname(yfxroad), f"{name}_feature_correlation_heatmap.jpg"))
+    plt.show()
+
+    print(f"All plots and CSVs saved for {name}")
+
+
+# AUC result saver
+def save_auc_results(auc_scores, model_names):
+    auc_path = os.path.join(os.path.dirname(yfxroad), "model_auc_results.csv")
+    with open(auc_path, mode='w', newline='') as file:
+        writer = csv.writer(file)
+        writer.writerow(["Model", "AUC Score"])
+        for name, score in zip(model_names, auc_scores):
+            writer.writerow([name, f"{score:.4f}"])
+    print(f"AUC results saved to {auc_path}")
+
+# VIF calculation function
+def calculate_vif(X, feature_names=None):
+    """
+    Calculate Variance Inflation Factor (VIF)
+    :param X: Feature matrix (numpy array or pandas DataFrame)
+    :param feature_names: Feature name list
+    :return: DataFrame containing VIF values
+    """
+    if isinstance(X, np.ndarray):
+        X = pd.DataFrame(X)
+
+    # Add constant for VIF
+    X_with_const = pd.DataFrame(X).copy()
+    X_with_const['const'] = 1
+
+    # Calculate VIF for each feature
+    vif_data = pd.DataFrame()
+    vif_data["feature"] = X.columns
+
+    if feature_names is not None and len(feature_names) == X.shape[1]:
+        vif_data["feature_name"] = feature_names
+    vif_data["VIF"] = [variance_inflation_factor(X_with_const.values, i)
+                       for i in range(X_with_const.shape[1] - 1)]  # Exclude constant
+
+    return vif_data
+
+# Save to DBF function
+def save2dbf(dbf_road, data):
+    # dbf_road: path, data: results
+    road = dbf_road
+    data = data
+    table = dbf.Table(road, 'SVC N(7,3); RFC N(7,3); KNC N(7,3); CNN N(7,3); '
+                            'GBDT N(7,3); GNB N(7,3); LR N(7,3)')  # Create DBF
+    table.open(mode=dbf.READ_WRITE)  # Read/Write mode
+    for j in range(data.shape[0]):  # Append loop
+        table.append(data={'SVC': data[j, 0], 'RFC': data[j, 1],
+                           'KNC': data[j, 2], 'CNN': data[j, 3],
+                           'GBDT': data[j, 4], 'GNB': data[j, 5],
+                           'LR': data[j, 6]})
+    table.close()
+
+
+# --------------------------- CONFIGURATION -------------------------------- #
+
+# feature_names: descriptive names of variables
+feature_names = ['Elevation', 'Slope', 'Aspect', 'Curvature', 'Soil_Type', 'NDVI', 'Land_Use', 'TWI', 'SPI',
+                  'STI', 'Distance_to_Water', 'Lithology', 'Rainfall']
+
+# Input DBF path
+dbfroad = ''  # SET INPUT PATH HERE
+
+# Selected column indices (The last field must be the disaster label)
+factor = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13]
+
+# Susceptibility output DBF path
+yfxroad = ''  # SET OUTPUT PATH HERE
+
+# --------------------------- EXECUTION -------------------------------- #
+
+if __name__ == "__main__":
+    if not dbfroad or not yfxroad:
+        print("Please set your input/output paths in the configuration section.")
+    else:
+        # Step 1: Data extraction and balanced sampling
+        (XY_sample, XY) = extract(dbfroad, factor)
+        
+        # Step 2: Main susceptibility calculation for 7 models
+        result = yfx(XY_sample, XY)
+        print(result)
+        
+        # Step 3: Save results to DBF file
+        save2dbf(dbf_road=yfxroad, data=result)
+        print("Process finished successfully.")
