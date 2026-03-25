@@ -1,6 +1,6 @@
 # FSM_China_ML
 
-### The `data` folder
+## The `data` folder
 
 **dem & rainfall.py**: DEM data (NASADEM) and precipitation data (CHIRPS 2015-2024) for the study area.
 
@@ -22,7 +22,7 @@
 
 ---
 
-### Factors processed in ArcGIS
+## Factors processed in ArcGIS
 
 **Slope, Aspect, Profile Curvature**: Derived from NASADEM.
 
@@ -30,13 +30,13 @@
 
 ---
 
-### The `lood_susceptibility.py` file
+## The `lood_susceptibility.py` file
 
 **flood_susceptibility.py**: Main Python script. Construct 7 machine learning models (RFC, CNN, GBDT, SVC, KNC, LR, GNB) for flood susceptibility mapping, evaluate model performance, perform SHAP analysis, and output flood susceptibility prediction.
 
 ---
 
-### Training data generation (ArcGIS)
+## Training data generation (ArcGIS)
 
 All factor rasters were processed using **Reclassify**, **Raster to Point**, and **Spatial Join** tools, then exported as a single table.
 
