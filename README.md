@@ -30,6 +30,16 @@
 
 ---
 
+## Future climate data (CMIP6)
+Future precipitation projections are obtained from the NEX-GDDP-CMIP6 dataset.
+**Data source**: https://nex-gddp-cmip6.s3.us-west-2.amazonaws.com/index.html#NEX-GDDP-CMIP6/GFDL-ESM4/
+**Model**: GFDL-ESM4
+**Years**:2031-2100
+**Scenarios**: SSP1-2.6, SSP3-7.0, SSP5-8.5
+**Resolution**: 0.25°
+
+---
+
 ## The `flood_susceptibility.py` file
 
 **flood_susceptibility.py**: Main Python script. Construct 7 machine learning models (RFC, CNN, GBDT, SVC, KNC, LR, GNB) for flood susceptibility mapping, evaluate model performance, perform SHAP analysis, and output flood susceptibility prediction.
