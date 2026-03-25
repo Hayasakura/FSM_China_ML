@@ -30,7 +30,7 @@
 
 ---
 
-## The `lood_susceptibility.py` file
+## The `flood_susceptibility.py` file
 
 **flood_susceptibility.py**: Main Python script. Construct 7 machine learning models (RFC, CNN, GBDT, SVC, KNC, LR, GNB) for flood susceptibility mapping, evaluate model performance, perform SHAP analysis, and output flood susceptibility prediction.
 
