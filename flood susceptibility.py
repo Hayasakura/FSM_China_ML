@@ -669,11 +669,11 @@ dbfroad = os.path.join(current_dir, 'sample', 'anhui_sample.dbf')  # SET INPUT P
 # Selected column indices (The last field must be the disaster label)
 factor = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13]
 
-output_dir = os.path.join(current_dir, 'output')
+output_dir = os.path.join('output')
 if not os.path.exists(output_dir):
     os.makedirs(output_dir)
 
-yfxroad = os.path.join(output_dir, 'anhui_sample.dbf')
+yfxroad = os.path.join('anhui_sample.dbf')
 
 # --------------------------- EXECUTION -------------------------------- #
 
