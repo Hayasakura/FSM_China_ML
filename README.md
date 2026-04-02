@@ -16,8 +16,8 @@ This Python script implements 7 machine learning algorithms to evaluate flood su
 
 To ensure reproducibility, a **ready-to-run sample dataset** is provided in the /sample folder.
 
-- **Region:** Chongqing, China.
-- **File:** Chongqing_sample.dbf.
+- **Region:** Anhui, China.
+- **File:** anhui_sample.dbf.
 - **Description:** This file contains pre-processed attributes for all 13 environmental factors and binary flood labels.
 - **Usage:** Users can directly run the flood_susceptibility.py script using this sample file to verify the workflow and generate outputs immediately.
 
