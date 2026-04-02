@@ -426,7 +426,7 @@ def save_classification_metrics(y_true, y_pred, model_name, output_dir):
     return metrics_df
 
 # SHAP summary plot and correlation function
-def save_weights_plot(model, X_train, name, random_seed=1, n_clusters=200):
+def save_weights_plot(model, X_train, name, random_seed=1, n_clusters=50):
     import seaborn as sns
     import shap
     import numpy as np
