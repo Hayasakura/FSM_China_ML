@@ -7,7 +7,7 @@ This Python script implements 7 machine learning algorithms to evaluate flood su
 **The code implements:**
 
 - **Data Extraction & Frequency Ratio (FR) Encoding:** Automatic calculation of FR values for 13 environmental factors to handle categorical and continuous variables.
-- **Ensemble Modeling:** Implementation and comparison of 7 algorithms: Random Forest (RFC), Convolutional Neural Network (CNN/MLP), Gradient Boosting (GBDT), Support Vector Machine (SVC), K-Nearest Neighbors (KNC), Logistic Regression (LR), and Gaussian Naive Bayes (GNB).
+- **Ensemble Modeling:** Implementation and comparison of 7 algorithms: Random Forest (RFC), Convolutional Neural Network (CNN), Gradient Boosting (GBDT), Support Vector Machine (SVC), K-Nearest Neighbors (KNC), Logistic Regression (LR), and Gaussian Naive Bayes (GNB).
 - **Statistical Validation:** Multicollinearity diagnosis (VIF) and performance evaluation (Accuracy, Precision, Recall, F1-score).
 - **Interpretability Engine:** Global and local feature contribution analysis using SHAP (Shapley Additive explanations).
 - **Geospatial Mapping:** Generation of pixel-level susceptibility scores for integration back into GIS environments.
