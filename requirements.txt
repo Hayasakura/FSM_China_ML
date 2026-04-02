@@ -1,0 +1,10 @@
+numpy==1.24.4
+pandas==2.3.3
+matplotlib==3.7.1
+scikit-learn==1.6.1
+scipy==1.9.3
+dbf==0.99.10
+dbfread==2.0.7
+shap==0.48.0
+seaborn==0.12.2
+statsmodels==0.14.5
