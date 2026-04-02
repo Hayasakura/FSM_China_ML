@@ -25,10 +25,10 @@ To ensure reproducibility, a **ready-to-run sample dataset** is provided in the 
 
 - **Python 3.9**
 
-- **Dependencies:**
+- **Dependencies:** All required libraries are listed in requirements.txt. You can install them in one click using:
 
   ```bash
-  pip install pandas numpy matplotlib scikit-learn dbfread dbf shap seaborn statsmodels
+  pip install -r requirements.txt
   ```
 
 ### Data Preparation & Workflow
